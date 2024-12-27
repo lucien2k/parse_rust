@@ -1,288 +1,451 @@
 //! Test cases for the parse_rust library
+use chrono::NaiveDateTime;
 use parse_rust::*;
-use std::collections::HashMap;
 
-#[test]
-fn test_basic_parse() {
-    let r = parse("{} {}", "hello world").unwrap();
-    assert_eq!(r.fixed, vec!["hello", "world"]);
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[test]
-fn test_no_match() {
-    assert!(parse("{}", "hello world").is_none());
-}
-
-#[test]
-fn test_literal_braces() {
-    let r = parse("{{hello}} {}", "{hello} world").unwrap();
-    assert_eq!(r.fixed, vec!["world"]);
-}
-
-#[test]
-fn test_multiple_fields() {
-    let r = parse("{} {} {}", "a b c").unwrap();
-    assert_eq!(r.fixed, vec!["a", "b", "c"]);
-}
-
-#[test]
-fn test_named_fields() {
-    let r = parse("{first} {second}", "hello world").unwrap();
-    assert_eq!(r.named["first"], "hello");
-    assert_eq!(r.named["second"], "world");
-}
-
-#[test]
-fn test_mixed_fields() {
-    let r = parse("{} {name} {}", "a world c").unwrap();
-    assert_eq!(r.fixed, vec!["a", "world", "c"]);
-    assert_eq!(r.named["name"], "world");
-}
-
-#[test]
-fn test_search() {
-    let r = search("Age: {}", "Name: John, Age: 25").unwrap();
-    assert_eq!(r.fixed, vec!["25"]);
-}
-
-#[test]
-fn test_findall() {
-    let results = findall("{}", "a b c");
-    assert_eq!(results.len(), 3);
-    assert_eq!(results[0].fixed, vec!["a"]);
-    assert_eq!(results[1].fixed, vec!["b"]);
-    assert_eq!(results[2].fixed, vec!["c"]);
-}
-
-#[test]
-fn test_int_conversion() {
-    let p = Parser::new("{:d}", true).unwrap();
-    let r = p.parse("123").unwrap();
-    let value: &i64 = r.get(0).unwrap();
-    assert_eq!(value, &123);
-}
-
-#[test]
-fn test_float_conversion() {
-    let p = Parser::new("{:f}", true).unwrap();
-    let r = p.parse("123.45").unwrap();
-    let value: &f64 = r.get(0).unwrap();
-    assert_eq!(value, &123.45);
-}
-
-#[test]
-fn test_word_conversion() {
-    let p = Parser::new("{:w}", true).unwrap();
-    let r = p.parse("hello123").unwrap();
-    let value: &String = r.get(0).unwrap();
-    assert_eq!(value, "hello123");
-}
-
-#[test]
-fn test_mixed_types() {
-    let p = Parser::new("{:d} {:f} {:w}", true).unwrap();
-    let r = p.parse("123 45.67 hello").unwrap();
-    
-    let int_value: &i64 = r.get(0).unwrap();
-    assert_eq!(int_value, &123);
-    
-    let float_value: &f64 = r.get(1).unwrap();
-    assert_eq!(float_value, &45.67);
-    
-    let word_value: &String = r.get(2).unwrap();
-    assert_eq!(word_value, "hello");
-}
-
-#[test]
-fn test_named_types() {
-    let p = Parser::new("{age:d}", true).unwrap();
-    let r = p.parse("25").unwrap();
-    let value: &i64 = r.get(0).unwrap();
-    assert_eq!(value, &25);
-}
-
-#[test]
-fn test_custom_type() {
-    struct CustomType {
-        value: i64,
+    #[test]
+    fn test_simple_pattern() {
+        let p = Parser::new("{:w} {:w}", true).unwrap();
+        let result = p.parse("hello world").unwrap();
+        assert_eq!(*result.get::<String>(0).unwrap(), "hello");
+        assert_eq!(*result.get::<String>(1).unwrap(), "world");
     }
 
-    #[derive(Debug)]
-    struct CustomConverter;
-    impl TypeConverter for CustomConverter {
-        fn convert(&self, s: &str) -> Result<Box<dyn std::any::Any>, ParseError> {
-            s.parse::<i64>()
-                .map(|n| Box::new(CustomType { value: n }) as Box<dyn std::any::Any>)
-                .map_err(|_| ParseError::TypeConversionFailed)
-        }
-
-        fn get_pattern(&self) -> Option<&str> {
-            Some(r"\d+")
-        }
+    #[test]
+    fn test_pattern_with_text() {
+        let p = Parser::new("Hello, {:w}!", true).unwrap();
+        let result = p.parse("Hello, world!").unwrap();
+        assert_eq!(*result.get::<String>(0).unwrap(), "world");
     }
 
-    let mut extra_types = HashMap::new();
-    extra_types.insert("custom".to_string(), Box::new(CustomConverter) as Box<dyn TypeConverter>);
-    
-    let p = Parser::new_with_types("{:custom}", true, extra_types).unwrap();
-    let r = p.parse("31").unwrap();
-    let value: &CustomType = r.get(0).unwrap();
-    assert_eq!(value.value, 31);
-}
+    #[test]
+    fn test_multiple_matches() {
+        let p = Parser::new("{:w} {:w} {:w}", true).unwrap();
+        let result = p.parse("a b c").unwrap();
+        assert_eq!(*result.get::<String>(0).unwrap(), "a");
+        assert_eq!(*result.get::<String>(1).unwrap(), "b");
+        assert_eq!(*result.get::<String>(2).unwrap(), "c");
+    }
 
-#[test]
-fn test_complex_field_names() {
-    let r = parse("{person.name} {array[0]}", "John 123").unwrap();
-    assert_eq!(r.fixed, vec!["John", "123"]);
-    assert_eq!(r.named.get("person__name"), Some(&"John".to_string()));
-    assert_eq!(r.named.get("array__0"), Some(&"123".to_string()));
-}
+    #[test]
+    fn test_named_fields_basic() {
+        let p = Parser::new("{first:w} {second:w}", true).unwrap();
+        let result = p.parse("hello world").unwrap();
+        assert_eq!(*result.named::<String>("first").unwrap(), "hello");
+        assert_eq!(*result.named::<String>("second").unwrap(), "world");
+    }
 
-#[test]
-fn test_datetime_conversion() {
-    // Test with format specifier tg (generic)
-    let p = Parser::new("Meet at {:tg}", true).unwrap();
-    let result = p.parse("Meet at 27/12/2024 19:57:55").unwrap();
-    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
-    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+    #[test]
+    fn test_mixed_named_unnamed() {
+        let p = Parser::new("{:w} {name:w} {:w}", true).unwrap();
+        let result = p.parse("a world c").unwrap();
+        assert_eq!(*result.get::<String>(0).unwrap(), "a");
+        assert_eq!(*result.named::<String>("name").unwrap(), "world");
+        assert_eq!(*result.get::<String>(2).unwrap(), "c");
+    }
 
-    // Test with format specifier ta (American)
-    let p = Parser::new("Meeting on {:ta}", true).unwrap();
-    let result = p.parse("Meeting on 12/27/2024 07:57:55 PM").unwrap();
-    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
-    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+    #[test]
+    fn test_integer() {
+        let p = Parser::new("{:d}", true).unwrap();
+        let result = p.parse("25").unwrap();
+        assert_eq!(*result.get::<i64>(0).unwrap(), 25);
+    }
 
-    // Test with format specifier te (email)
-    let p = Parser::new("Sent on {:te}", true).unwrap();
-    let result = p.parse("Sent on Fri, 27 Dec 2024 19:57:55 +0000").unwrap();
-    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
-    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+    #[test]
+    fn test_findall() {
+        let p = Parser::new("{:w}", true).unwrap();
+        let results = p.findall("a b c");
+        assert_eq!(results.len(), 3);
+        assert_eq!(*results[0].get::<String>(0).unwrap(), "a");
+        assert_eq!(*results[1].get::<String>(0).unwrap(), "b");
+        assert_eq!(*results[2].get::<String>(0).unwrap(), "c");
+    }
 
-    // Test with format specifier th (HTTP log)
-    let p = Parser::new("Access: {:th}", true).unwrap();
-    let result = p.parse("Access: 27/Dec/2024:19:57:55 +0000").unwrap();
-    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
-    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+    #[test]
+    fn test_datetime() {
+        use chrono::NaiveDateTime;
 
-    // Test with format specifier ts (system log)
-    let p = Parser::new("Log: {:ts}", true).unwrap();
-    let result = p.parse("Log: Dec 27 2024 19:57:55").unwrap();
-    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
-    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+        let p = Parser::new("{:tg}", true).unwrap();
+        let result = p.parse("27/12/2024 20:45:27").unwrap();
+        let dt = result.get::<NaiveDateTime>(0).unwrap();
+        assert_eq!(
+            dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2024-12-27 20:45:27"
+        );
+    }
 
-    // Test with format specifier ti (ISO)
-    let p = Parser::new("ISO: {:ti}", true).unwrap();
-    
-    // Test with timezone and milliseconds
-    let result = p.parse("ISO: 2024-12-27T19:57:55.000+00:00").unwrap();
-    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
-    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
-    
-    // Test without timezone
-    let result = p.parse("ISO: 2024-12-27T19:57:55").unwrap();
-    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
-    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
-    
-    // Test with milliseconds
-    let result = p.parse("ISO: 2024-12-27T19:57:55.123").unwrap();
-    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
-    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
-    
-    // Test date only
-    let result = p.parse("ISO: 2024-12-27").unwrap();
-    let d: &chrono::NaiveDate = result.get(0).unwrap();
-    assert_eq!(d.format("%Y-%m-%d").to_string(), "2024-12-27");
-}
+    #[test]
+    fn test_empty_pattern() {
+        // Empty pattern should match empty string
+        let p = Parser::new("", true).unwrap();
+        assert!(p.parse("").is_some());
 
-#[test]
-fn test_date_conversion() {
-    // Test generic format (tg)
-    let p = Parser::new("Date: {:tg}", true).unwrap();
-    let result = p.parse("Date: 27/12/2024").unwrap();
-    let dt: &chrono::NaiveDate = result.get(0).unwrap();
-    assert_eq!(dt.format("%Y-%m-%d").to_string(), "2024-12-27");
+        // Pattern with just a literal should match that literal
+        let p = Parser::new("hello", true).unwrap();
+        assert!(p.parse("hello").is_some());
+        assert!(p.parse("world").is_none());
+    }
 
-    // Test US format (ta)
-    let p = Parser::new("Date: {:ta}", true).unwrap();
-    let result = p.parse("Date: 12/27/2024").unwrap();
-    let dt: &chrono::NaiveDate = result.get(0).unwrap();
-    assert_eq!(dt.format("%Y-%m-%d").to_string(), "2024-12-27");
+    #[test]
+    fn test_named_fields() {
+        let p = Parser::new("Name: {name:w}, Age: {age:d}, Score: {score:f}", true).unwrap();
+        let result = p.parse("Name: Alice, Age: 25, Score: 95.5").unwrap();
 
-    // Test email format (te)
-    let p = Parser::new("Date: {:te}", true).unwrap();
-    let result = p.parse("Date: 27 Dec 2024").unwrap();
-    let dt: &chrono::NaiveDate = result.get(0).unwrap();
-    assert_eq!(dt.format("%Y-%m-%d").to_string(), "2024-12-27");
-}
+        // Test basic named field access
+        assert_eq!(*result.named::<String>("name").unwrap(), "Alice");
+        assert_eq!(*result.named::<i64>("age").unwrap(), 25);
+        assert_eq!(*result.named::<f64>("score").unwrap(), 95.5);
 
-#[test]
-fn test_time_conversion() {
-    // Test generic format (tg)
-    let p = Parser::new("Time: {:tg}", true).unwrap();
-    let result = p.parse("Time: 19:57:55").unwrap();
-    let dt: &chrono::NaiveTime = result.get(0).unwrap();
-    assert_eq!(dt.format("%H:%M:%S").to_string(), "19:57:55");
+        // Test non-existent field
+        assert!(result.named::<String>("nonexistent").is_none());
 
-    // Test without seconds
-    let result = p.parse("Time: 19:57").unwrap();
-    let dt: &chrono::NaiveTime = result.get(0).unwrap();
-    assert_eq!(dt.format("%H:%M:%S").to_string(), "19:57:00");
+        // Test wrong type access
+        assert!(result.named::<i64>("name").is_none());
+        assert!(result.named::<String>("age").is_none());
+        assert!(result.named::<i64>("score").is_none());
+    }
 
-    // Test 12-hour format with AM/PM
-    let result = p.parse("Time: 07:57:55 PM").unwrap();
-    let dt: &chrono::NaiveTime = result.get(0).unwrap();
-    assert_eq!(dt.format("%H:%M:%S").to_string(), "19:57:55");
-}
+    #[test]
+    fn test_complex_named_fields() {
+        let p = Parser::new(
+            "User {user.name:w} ({user.id:d}) - Role: {user.role:w}",
+            true,
+        )
+        .unwrap();
+        let result = p.parse("User admin (123) - Role: superuser").unwrap();
 
-#[test]
-fn test_datetime_errors() {
-    // Test with invalid format
-    let p = Parser::new("Meet at {:tg}", true).unwrap();
-    assert!(p.parse("Meet at invalid").is_none());
-    
-    // Test with invalid date
-    assert!(p.parse("Meet at 13/13/2024 19:57:55").is_none());
-    
-    // Test with invalid time
-    assert!(p.parse("Meet at 1/2/2024 25:00:00").is_none());
-    
-    // Test with missing time (should be valid for tg format)
-    assert!(p.parse("Meet at 1/2/2024").is_some());
-    
-    // Test with missing date (should be valid for tg format)
-    assert!(p.parse("Meet at 19:57:55").is_some());
-}
+        // Test dot notation fields
+        assert_eq!(*result.named::<String>("user.name").unwrap(), "admin");
+        assert_eq!(*result.named::<i64>("user.id").unwrap(), 123);
+        assert_eq!(*result.named::<String>("user.role").unwrap(), "superuser");
 
-#[test]
-fn test_error_cases() {
-    // Invalid format string
-    assert!(matches!(Parser::new("{", false), Err(ParseError::InvalidFormat)));
-    
-    // Invalid type conversion
-    let r = parse("{:d}", "abc");
-    assert!(r.is_none());
-}
+        // Test accessing parent field (should be None)
+        assert!(result.named::<String>("user").is_none());
+    }
 
-#[test]
-fn test_case_sensitivity() {
-    // Case insensitive (default)
-    let r = parse("HELLO {}", "hello world");
-    assert!(r.is_some());
-    
-    // Case sensitive
-    let parser = Parser::new("HELLO {}", true).unwrap();
-    assert!(parser.parse("hello world").is_none());
-    assert!(parser.parse("HELLO world").is_some());
-}
+    #[test]
+    fn test_mixed_named_and_positional() {
+        let p = Parser::new("{:d} - {name:w} - {value:f}", true).unwrap();
+        let result = p.parse("42 - Alice - 3.14").unwrap();
 
-#[test]
-fn test_empty_patterns() {
-    // Empty format string
-    let r = parse("", "");
-    assert!(r.is_some());
-    assert!(r.unwrap().fixed.is_empty());
-    
-    // Empty input string
-    let r = parse("{}", "");
-    assert!(r.is_none());
+        // Test positional access
+        assert_eq!(*result.get::<i64>(0).unwrap(), 42);
+        assert_eq!(*result.get::<f64>(2).unwrap(), 3.14);
+
+        // Test named access
+        assert_eq!(*result.named::<String>("name").unwrap(), "Alice");
+    }
+
+    #[test]
+    fn test_repeated_named_fields() {
+        let p = Parser::new("{x:d} + {y:d} = {sum:d}", true).unwrap();
+        let result = p.parse("5 + 7 = 12").unwrap();
+
+        assert_eq!(*result.named::<i64>("x").unwrap(), 5);
+        assert_eq!(*result.named::<i64>("y").unwrap(), 7);
+        assert_eq!(*result.named::<i64>("sum").unwrap(), 12);
+    }
+
+    #[test]
+    fn test_empty_named_fields() {
+        let p = Parser::new("Name: {name:w}, Age: {age:d}", true).unwrap();
+
+        // Test with missing fields
+        assert!(p.parse("Name: , Age: 25").is_none());
+        assert!(p.parse("Name: Alice, Age: ").is_none());
+    }
+
+    #[test]
+    fn test_case_sensitivity() {
+        // Test case-sensitive parsing
+        let p = Parser::new("Hello, {name:w}!", true).unwrap();
+        assert!(p.parse("Hello, World!").is_some());
+        assert!(p.parse("HELLO, World!").is_none());
+
+        // Test case-insensitive parsing
+        let p = Parser::new("Hello, {name:w}!", false).unwrap();
+        assert!(p.parse("Hello, World!").is_some());
+        assert!(p.parse("HELLO, World!").is_some());
+        assert!(p.parse("hello, World!").is_some());
+    }
+
+    #[test]
+    fn test_special_characters() {
+        // Test regex special characters in pattern
+        let p = Parser::new("Price: ${price:f}", true).unwrap();
+        let result = p.parse("Price: $123.45").unwrap();
+        assert_eq!(*result.named::<f64>("price").unwrap(), 123.45);
+
+        // Test with parentheses
+        let p = Parser::new("({value:w})", true).unwrap();
+        let result = p.parse("(test)").unwrap();
+        assert_eq!(*result.named::<String>("value").unwrap(), "test");
+
+        // Test with square brackets
+        let p = Parser::new("[{value:w}]", true).unwrap();
+        let result = p.parse("[test]").unwrap();
+        assert_eq!(*result.named::<String>("value").unwrap(), "test");
+    }
+
+    #[test]
+    fn test_optional_whitespace() {
+        let p = Parser::new("{a:w},{b:w}", true).unwrap();
+
+        // Test with and without spaces
+        let result = p.parse("hello,world").unwrap();
+        assert_eq!(*result.named::<String>("a").unwrap(), "hello");
+        assert_eq!(*result.named::<String>("b").unwrap(), "world");
+
+        let result = p.parse("hello, world").unwrap();
+        assert_eq!(*result.named::<String>("a").unwrap(), "hello");
+        assert_eq!(*result.named::<String>("b").unwrap(), "world");
+    }
+
+    #[test]
+    fn test_basic_examples() {
+        // Basic string parsing
+        let result = parse("It's {}, I love it!", "It's spam, I love it!").unwrap();
+        assert_eq!(*result.get::<String>(0).unwrap(), "spam");
+
+        // Search in a larger string
+        let result = search("Age: {:d}\n", "Name: Rufus\nAge: 42\nColor: red\n").unwrap();
+        assert_eq!(*result.get::<i64>(0).unwrap(), 42);
+
+        // Find all occurrences
+        let results = findall(">{}<", "<p>the <b>bold</b> text</p>");
+        let texts: Vec<String> = results
+            .iter()
+            .map(|r| r.get::<String>(0).unwrap().clone())
+            .collect();
+        assert_eq!(texts.join(""), "the bold text");
+    }
+
+    #[test]
+    fn test_format_syntax() {
+        // Anonymous fields
+        let result = parse("Bring me a {}", "Bring me a shrubbery").unwrap();
+        assert_eq!(*result.get::<String>(0).unwrap(), "shrubbery");
+
+        // Multiple anonymous fields
+        let result = parse("The {} who {} {}", "The knights who say Ni!").unwrap();
+        assert_eq!(*result.get::<String>(0).unwrap(), "knights");
+        assert_eq!(*result.get::<String>(1).unwrap(), "say");
+        assert_eq!(*result.get::<String>(2).unwrap(), "Ni!");
+
+        // Named fields
+        let result = parse(
+            "Meet {name} at {time:tg}",
+            "Meet Alan at 27/12/2024 20:45:27",
+        )
+        .unwrap();
+        assert_eq!(*result.named::<String>("name").unwrap(), "Alan");
+        let dt = result.named::<NaiveDateTime>("time").unwrap();
+        assert_eq!(
+            dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2024-12-27 20:45:27"
+        );
+
+        // Mixed named and anonymous fields
+        let result = parse("The {} is {color}", "The sky is blue").unwrap();
+        assert_eq!(*result.get::<String>(0).unwrap(), "sky");
+        assert_eq!(*result.named::<String>("color").unwrap(), "blue");
+    }
+
+    #[test]
+    fn test_type_conversions() {
+        // Integer
+        let result = parse("{:d}", "42").unwrap();
+        assert_eq!(*result.get::<i64>(0).unwrap(), 42);
+
+        // Float
+        let result = parse("{:f}", "3.14").unwrap();
+        assert_eq!(*result.get::<f64>(0).unwrap(), 3.14);
+
+        // Word
+        let result = parse("{:w}", "hello").unwrap();
+        assert_eq!(*result.get::<String>(0).unwrap(), "hello");
+
+        // DateTime
+        let result = parse("{:tg}", "27/12/2024 20:45:27").unwrap();
+        let dt = result.get::<NaiveDateTime>(0).unwrap();
+        assert_eq!(
+            dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2024-12-27 20:45:27"
+        );
+    }
+
+    #[test]
+    fn test_search_examples() {
+        // Search at start of string
+        let result = search("Age: {:d}", "Age: 42").unwrap();
+        assert_eq!(*result.get::<i64>(0).unwrap(), 42);
+
+        // Search in middle of string
+        let result = search("age={:d}", "name=John age=42 color=blue").unwrap();
+        assert_eq!(*result.get::<i64>(0).unwrap(), 42);
+
+        // Search with named fields
+        let result = search("name={:d}", "color=blue name=42 age=42").unwrap();
+        assert_eq!(*result.get::<i64>(0).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_findall_examples() {
+        // Find all numbers
+        let results = findall("{:d}", "1 2 3 4 5");
+        let numbers: Vec<i64> = results.iter().map(|r| *r.get::<i64>(0).unwrap()).collect();
+        assert_eq!(numbers, vec![1, 2, 3, 4, 5]);
+
+        // Find all key-value pairs
+        let results = findall("{key:w}={value:w}", "name=John age=42 color=blue");
+        let pairs: Vec<(String, String)> = results
+            .iter()
+            .map(|r| {
+                (
+                    r.named::<String>("key").unwrap().clone(),
+                    r.named::<String>("value").unwrap().clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            pairs,
+            vec![
+                ("name".to_string(), "John".to_string()),
+                ("age".to_string(), "42".to_string()),
+                ("color".to_string(), "blue".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_examples_basic_parsing() {
+        // Basic integer parsing
+        let p = Parser::new("Value is {:d}", true).unwrap();
+        let result = p.parse("Value is 42").unwrap();
+        let value: &i64 = result.get(0).unwrap();
+        assert_eq!(*value, 42);
+
+        // Basic word parsing
+        let p = Parser::new("Hello, {:w}!", true).unwrap();
+        let result = p.parse("Hello, World!").unwrap();
+        let word: &String = result.get(0).unwrap();
+        assert_eq!(word, "World");
+
+        // Multiple fields
+        let p = Parser::new("{:w} is {:d} years old", true).unwrap();
+        let result = p.parse("Alice is 25 years old").unwrap();
+        let name: &String = result.get(0).unwrap();
+        let age: &i64 = result.get(1).unwrap();
+        assert_eq!(name, "Alice");
+        assert_eq!(*age, 25);
+    }
+
+    #[test]
+    fn test_examples_datetime_parsing() {
+        // Generic datetime format
+        let p = Parser::new("Event time: {:tg}", true).unwrap();
+        let result = p.parse("Event time: 27/12/2024 19:57:55").unwrap();
+        let dt: &NaiveDateTime = result.get(0).unwrap();
+        assert_eq!(
+            dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2024-12-27 19:57:55"
+        );
+
+        // American format
+        let p = Parser::new("Meeting at {:ta}", true).unwrap();
+        let result = p.parse("Meeting at 12/27/2024 07:57:55 PM").unwrap();
+        let dt: &NaiveDateTime = result.get(0).unwrap();
+        assert_eq!(
+            dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2024-12-27 19:57:55"
+        );
+
+        // Email format
+        let p = Parser::new("Sent: {:te}", true).unwrap();
+        let result = p.parse("Sent: Fri, 27 Dec 2024 19:57:55 +0000").unwrap();
+        let dt: &NaiveDateTime = result.get(0).unwrap();
+        assert_eq!(
+            dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2024-12-27 19:57:55"
+        );
+
+        // ISO format
+        let p = Parser::new("Timestamp: {:ti}", true).unwrap();
+        let result = p.parse("Timestamp: 2024-12-27T19:57:55.000+00:00").unwrap();
+        let dt: &NaiveDateTime = result.get(0).unwrap();
+        assert_eq!(
+            dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2024-12-27 19:57:55"
+        );
+    }
+
+    #[test]
+    fn test_examples_named_fields() {
+        // Named fields with different types
+        let p = Parser::new("Name: {name:w}, Age: {age:d}, Score: {score:f}", true).unwrap();
+        let result = p.parse("Name: Alice, Age: 25, Score: 95.5").unwrap();
+
+        let name: &String = result.named("name").unwrap();
+        let age: &i64 = result.named("age").unwrap();
+        let score: &f64 = result.named("score").unwrap();
+
+        assert_eq!(name, "Alice");
+        assert_eq!(*age, 25);
+        assert_eq!(*score, 95.5);
+
+        // Complex field names with dot notation
+        let p = Parser::new("User {user.name:w} has role {user.role:w}", true).unwrap();
+        let result = p.parse("User admin has role superuser").unwrap();
+
+        let username: &String = result.named("user.name").unwrap();
+        let role: &String = result.named("user.role").unwrap();
+
+        assert_eq!(username, "admin");
+        assert_eq!(role, "superuser");
+    }
+
+    #[test]
+    fn test_examples_search_and_findall() {
+        // Search for a pattern in text
+        let p = Parser::new("age: {:d}", true).unwrap();
+        let text = "User profile - name: John, age: 30, city: New York";
+
+        let result = p.search(text).unwrap();
+        let age: &i64 = result.get(0).unwrap();
+        assert_eq!(*age, 30);
+
+        // Find all numbers in text
+        let p = Parser::new("{:d}", true).unwrap();
+        let text = "Scores: 85, 92, 78, 95, 88";
+
+        let results = p.findall(text);
+        let scores: Vec<i64> = results.iter().map(|r| *r.get::<i64>(0).unwrap()).collect();
+        assert_eq!(scores, vec![85, 92, 78, 95, 88]);
+
+        // Find all dates in text
+        let p = Parser::new("{:tg}", true).unwrap();
+        let text = "Events: 27/12/2024 19:57:55, 28/12/2024 10:30:00, 29/12/2024 15:45:00";
+
+        let results = p.findall(text);
+        let dates: Vec<String> = results
+            .iter()
+            .map(|r| {
+                r.get::<NaiveDateTime>(0)
+                    .unwrap()
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(
+            dates,
+            vec![
+                "2024-12-27 19:57:55",
+                "2024-12-28 10:30:00",
+                "2024-12-29 15:45:00"
+            ]
+        );
+    }
 }

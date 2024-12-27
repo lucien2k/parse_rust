@@ -8,3 +8,19 @@ regex = "1.10.2"
 lazy_static = "1.4.0"
 thiserror = "1.0"
 chrono = "0.4"
+
+[[example]]
+name = "basic_parsing"
+path = "examples/basic_parsing.rs"
+
+[[example]]
+name = "datetime_parsing"
+path = "examples/datetime_parsing.rs"
+
+[[example]]
+name = "named_fields"
+path = "examples/named_fields.rs"
+
+[[example]]
+name = "search_and_findall"
+path = "examples/search_and_findall.rs"
