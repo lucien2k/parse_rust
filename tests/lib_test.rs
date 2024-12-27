@@ -484,7 +484,8 @@ mod tests {
     fn test_case_sensitive_findall() {
         // Test case-insensitive (default)
         let results = findall("x({:w})x", "X(hi)X");
-        let words: Vec<String> = results.iter()
+        let words: Vec<String> = results
+            .iter()
             .map(|r| r.get::<String>(0).unwrap().clone())
             .collect();
         assert_eq!(words, vec!["hi"]);
