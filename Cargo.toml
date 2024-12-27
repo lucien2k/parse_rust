@@ -2,6 +2,11 @@
 name = "parse_rust"
 version = "0.1.0"
 edition = "2021"
+description = "A Rust implementation of Python's parse library for string parsing and pattern matching"
+license = "MIT"
+homepage = "https://github.com/lucien2k/parse_rust"
+repository = "https://github.com/lucien2k/parse_rust"
+documentation = "https://github.com/lucien2k/parse_rust"
 
 [dependencies]
 regex = "1.10.2"
