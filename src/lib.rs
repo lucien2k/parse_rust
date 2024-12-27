@@ -301,6 +301,13 @@ lazy_static::lazy_static! {
     };
 }
 
+type FormatParseResult = (
+    String,         // exact pattern
+    String,         // search pattern
+    HashMap<String, usize>,  // field map
+    HashMap<String, String>, // field types
+);
+
 impl Parser {
     pub fn new_with_types(
         format: &str,
@@ -419,15 +426,7 @@ impl Parser {
     fn parse_format(
         format: &str,
         type_converters: &HashMap<String, Box<dyn TypeConverter>>,
-    ) -> Result<
-        (
-            String,
-            String,
-            HashMap<String, usize>,
-            HashMap<String, String>,
-        ),
-        ParseError,
-    > {
+    ) -> Result<FormatParseResult, ParseError> {
         let mut field_map = HashMap::new();
         let mut field_types = HashMap::new();
         let mut group_count = 0;
