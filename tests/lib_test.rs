@@ -448,4 +448,66 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn test_multiline_search() {
+        let result = search("age: {:d}\n", "name: Rufus\nage: 42\ncolor: red\n").unwrap();
+        assert_eq!(*result.get::<i64>(0).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_dotted_field_names() {
+        // Test dotted field names in type conversion
+        let result = parse("{a.b:d}", "1").unwrap();
+        assert_eq!(*result.named::<i64>("a.b").unwrap(), 1);
+
+        // Test mixed dotted and underscored names
+        let result = parse("{a_b:w} {a.b:d}", "1 2").unwrap();
+        assert_eq!(*result.named::<String>("a_b").unwrap(), "1");
+        assert_eq!(*result.named::<i64>("a.b").unwrap(), 2);
+    }
+
+    #[test]
+    fn test_pm_handling() {
+        // Test PM times around noon
+        let result = parse("Meet at {:tg}", "Meet at 1/2/2011 12:15 PM").unwrap();
+        let dt = result.get::<NaiveDateTime>(0).unwrap();
+        assert_eq!(dt.format("%Y-%m-%d %H:%M").to_string(), "2011-02-01 12:15");
+
+        // Test AM times around midnight
+        let result = parse("Meet at {:tg}", "Meet at 1/2/2011 12:15 AM").unwrap();
+        let dt = result.get::<NaiveDateTime>(0).unwrap();
+        assert_eq!(dt.format("%Y-%m-%d %H:%M").to_string(), "2011-02-01 00:15");
+    }
+
+    #[test]
+    fn test_case_sensitive_findall() {
+        // Test case-insensitive (default)
+        let results = findall("x({:w})x", "X(hi)X");
+        let words: Vec<String> = results.iter()
+            .map(|r| r.get::<String>(0).unwrap().clone())
+            .collect();
+        assert_eq!(words, vec!["hi"]);
+
+        // Test case-sensitive
+        let p = Parser::new("x({:w})x", true).unwrap();
+        let results = p.findall("X(hi)X");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_unmatched_brace() {
+        // Test that unmatched braces don't parse
+        assert!(Parser::new("a{b", true).is_err());
+        assert!(Parser::new("a}b", true).is_err());
+        assert!(Parser::new("a{b}}", true).is_err());
+        assert!(Parser::new("a{{b}", true).is_err());
+    }
+
+    #[test]
+    fn test_trailing_newline() {
+        // Test that patterns can match strings with trailing newlines
+        let result = parse("Hello {:w}!", "Hello World!\n").unwrap();
+        assert_eq!(*result.get::<String>(0).unwrap(), "World");
+    }
 }

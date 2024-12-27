@@ -310,9 +310,9 @@ impl Parser {
         let (exact_pattern, search_pattern, field_map, field_types) =
             Self::parse_format(format, &extra_types)?;
         let flags = if case_sensitive {
-            RegexBuilder::new(&format!("^{}$", exact_pattern))
+            RegexBuilder::new(&format!("^{}\\s*$", exact_pattern))
         } else {
-            let mut builder = RegexBuilder::new(&format!("^{}$", exact_pattern));
+            let mut builder = RegexBuilder::new(&format!("^{}\\s*$", exact_pattern));
             builder.case_insensitive(true);
             builder
         };
@@ -470,11 +470,7 @@ impl Parser {
                         // Get the pattern for the current type
                         let type_pattern = if !current_type.is_empty() {
                             if let Some(converter) = type_converters.get(&current_type) {
-                                if let Some(type_pattern) = converter.get_pattern() {
-                                    type_pattern
-                                } else {
-                                    r".*?"
-                                }
+                                converter.get_pattern().unwrap_or(r".*?")
                             } else {
                                 return Err(ParseError::InvalidFormat);
                             }
@@ -541,15 +537,13 @@ impl Parser {
     pub fn parse(&self, text: &str) -> Option<ParseResult> {
         self.exact_re
             .captures(text)
-            .map(|captures| self.process_captures(&captures).ok())
-            .flatten()
+            .and_then(|captures| self.process_captures(&captures).ok())
     }
 
     pub fn search(&self, text: &str) -> Option<ParseResult> {
         self.search_re
             .captures(text)
-            .map(|captures| self.process_captures(&captures).ok())
-            .flatten()
+            .and_then(|captures| self.process_captures(&captures).ok())
     }
 
     pub fn findall(&self, text: &str) -> Vec<ParseResult> {
