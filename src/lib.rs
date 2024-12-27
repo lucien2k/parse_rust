@@ -302,8 +302,8 @@ lazy_static::lazy_static! {
 }
 
 type FormatParseResult = (
-    String,         // exact pattern
-    String,         // search pattern
+    String,                  // exact pattern
+    String,                  // search pattern
     HashMap<String, usize>,  // field map
     HashMap<String, String>, // field types
 );
