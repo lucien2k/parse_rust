@@ -140,85 +140,117 @@ fn test_complex_field_names() {
 
 #[test]
 fn test_datetime_conversion() {
-    // Test datetime parsing
-    let p = Parser::new("{:datetime}", true).unwrap();
-    let result = p.parse("2024-12-27 19:57:55").unwrap();
+    // Test with format specifier tg (generic)
+    let p = Parser::new("Meet at {:tg}", true).unwrap();
+    let result = p.parse("Meet at 27/12/2024 19:57:55").unwrap();
     let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
     assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
 
-    // Test with T separator
-    let result = p.parse("2024-12-27T19:57:55").unwrap();
+    // Test with format specifier ta (American)
+    let p = Parser::new("Meeting on {:ta}", true).unwrap();
+    let result = p.parse("Meeting on 12/27/2024 07:57:55 PM").unwrap();
     let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
     assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
 
-    // Test with Z suffix
-    let result = p.parse("2024-12-27T19:57:55Z").unwrap();
+    // Test with format specifier te (email)
+    let p = Parser::new("Sent on {:te}", true).unwrap();
+    let result = p.parse("Sent on Fri, 27 Dec 2024 19:57:55 +0000").unwrap();
     let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
     assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+
+    // Test with format specifier th (HTTP log)
+    let p = Parser::new("Access: {:th}", true).unwrap();
+    let result = p.parse("Access: 27/Dec/2024:19:57:55 +0000").unwrap();
+    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
+    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+
+    // Test with format specifier ts (system log)
+    let p = Parser::new("Log: {:ts}", true).unwrap();
+    let result = p.parse("Log: Dec 27 2024 19:57:55").unwrap();
+    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
+    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+
+    // Test with format specifier ti (ISO)
+    let p = Parser::new("ISO: {:ti}", true).unwrap();
+    
+    // Test with timezone and milliseconds
+    let result = p.parse("ISO: 2024-12-27T19:57:55.000+00:00").unwrap();
+    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
+    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+    
+    // Test without timezone
+    let result = p.parse("ISO: 2024-12-27T19:57:55").unwrap();
+    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
+    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+    
+    // Test with milliseconds
+    let result = p.parse("ISO: 2024-12-27T19:57:55.123").unwrap();
+    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
+    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+    
+    // Test date only
+    let result = p.parse("ISO: 2024-12-27").unwrap();
+    let d: &chrono::NaiveDate = result.get(0).unwrap();
+    assert_eq!(d.format("%Y-%m-%d").to_string(), "2024-12-27");
 }
 
 #[test]
 fn test_date_conversion() {
-    let p = Parser::new("{:date}", true).unwrap();
-    
-    // Test ISO format
-    let result = p.parse("2024-12-27").unwrap();
-    let date: &chrono::NaiveDate = result.get(0).unwrap();
-    assert_eq!(date.format("%Y-%m-%d").to_string(), "2024-12-27");
+    // Test generic format (tg)
+    let p = Parser::new("Date: {:tg}", true).unwrap();
+    let result = p.parse("Date: 27/12/2024").unwrap();
+    let dt: &chrono::NaiveDate = result.get(0).unwrap();
+    assert_eq!(dt.format("%Y-%m-%d").to_string(), "2024-12-27");
 
-    // Test slash format
-    let result = p.parse("27/12/2024").unwrap();
-    let date: &chrono::NaiveDate = result.get(0).unwrap();
-    assert_eq!(date.format("%Y-%m-%d").to_string(), "2024-12-27");
+    // Test US format (ta)
+    let p = Parser::new("Date: {:ta}", true).unwrap();
+    let result = p.parse("Date: 12/27/2024").unwrap();
+    let dt: &chrono::NaiveDate = result.get(0).unwrap();
+    assert_eq!(dt.format("%Y-%m-%d").to_string(), "2024-12-27");
 
-    // Test named month format
-    let result = p.parse("27-Dec-2024").unwrap();
-    let date: &chrono::NaiveDate = result.get(0).unwrap();
-    assert_eq!(date.format("%Y-%m-%d").to_string(), "2024-12-27");
-
-    // Test compact format
-    let result = p.parse("20241227").unwrap();
-    let date: &chrono::NaiveDate = result.get(0).unwrap();
-    assert_eq!(date.format("%Y-%m-%d").to_string(), "2024-12-27");
+    // Test email format (te)
+    let p = Parser::new("Date: {:te}", true).unwrap();
+    let result = p.parse("Date: 27 Dec 2024").unwrap();
+    let dt: &chrono::NaiveDate = result.get(0).unwrap();
+    assert_eq!(dt.format("%Y-%m-%d").to_string(), "2024-12-27");
 }
 
 #[test]
 fn test_time_conversion() {
-    let p = Parser::new("{:time}", true).unwrap();
-    
-    // Test 24-hour format with seconds
-    let result = p.parse("19:57:55").unwrap();
-    let time: &chrono::NaiveTime = result.get(0).unwrap();
-    assert_eq!(time.format("%H:%M:%S").to_string(), "19:57:55");
+    // Test generic format (tg)
+    let p = Parser::new("Time: {:tg}", true).unwrap();
+    let result = p.parse("Time: 19:57:55").unwrap();
+    let dt: &chrono::NaiveTime = result.get(0).unwrap();
+    assert_eq!(dt.format("%H:%M:%S").to_string(), "19:57:55");
 
-    // Test 24-hour format without seconds
-    let result = p.parse("19:57").unwrap();
-    let time: &chrono::NaiveTime = result.get(0).unwrap();
-    assert_eq!(time.format("%H:%M:%S").to_string(), "19:57:00");
+    // Test without seconds
+    let result = p.parse("Time: 19:57").unwrap();
+    let dt: &chrono::NaiveTime = result.get(0).unwrap();
+    assert_eq!(dt.format("%H:%M:%S").to_string(), "19:57:00");
 
-    // Test 12-hour format with seconds
-    let result = p.parse("07:57:55 PM").unwrap();
-    let time: &chrono::NaiveTime = result.get(0).unwrap();
-    assert_eq!(time.format("%H:%M:%S").to_string(), "19:57:55");
-
-    // Test 12-hour format without seconds
-    let result = p.parse("07:57 PM").unwrap();
-    let time: &chrono::NaiveTime = result.get(0).unwrap();
-    assert_eq!(time.format("%H:%M:%S").to_string(), "19:57:00");
+    // Test 12-hour format with AM/PM
+    let result = p.parse("Time: 07:57:55 PM").unwrap();
+    let dt: &chrono::NaiveTime = result.get(0).unwrap();
+    assert_eq!(dt.format("%H:%M:%S").to_string(), "19:57:55");
 }
 
 #[test]
 fn test_datetime_errors() {
-    let p = Parser::new("{:datetime}", true).unwrap();
+    // Test with invalid format
+    let p = Parser::new("Meet at {:tg}", true).unwrap();
+    assert!(p.parse("Meet at invalid").is_none());
     
-    // Invalid date
-    assert!(p.parse("2024-13-27 19:57:55").is_none());
+    // Test with invalid date
+    assert!(p.parse("Meet at 13/13/2024 19:57:55").is_none());
     
-    // Invalid time
-    assert!(p.parse("2024-12-27 25:57:55").is_none());
+    // Test with invalid time
+    assert!(p.parse("Meet at 1/2/2024 25:00:00").is_none());
     
-    // Invalid format
-    assert!(p.parse("2024/12/27 19:57:55").is_none());
+    // Test with missing time (should be valid for tg format)
+    assert!(p.parse("Meet at 1/2/2024").is_some());
+    
+    // Test with missing date (should be valid for tg format)
+    assert!(p.parse("Meet at 19:57:55").is_some());
 }
 
 #[test]

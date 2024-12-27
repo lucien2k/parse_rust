@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use regex::{Regex, RegexBuilder};
 use thiserror::Error;
-use chrono::{NaiveDateTime, NaiveDate, NaiveTime};
+use chrono::{NaiveDateTime, NaiveDate, NaiveTime, DateTime};
 use std::any::Any;
 
 #[derive(Debug)]
@@ -85,51 +85,125 @@ impl TypeConverter for WordConverter {
 }
 
 #[derive(Debug, Clone)]
-pub struct DateTimeConverter;
+pub struct DateTimeConverter {
+    format_type: String,
+}
 impl TypeConverter for DateTimeConverter {
     fn convert(&self, s: &str) -> Result<Box<dyn std::any::Any>, ParseError> {
         // Try various datetime formats
-        let formats = [
-            // Standard formats
-            "%Y-%m-%d %H:%M:%S",     // 2024-12-27 19:57:55
-            "%Y-%m-%d %H:%M",        // 2024-12-27 19:57
-            "%Y-%m-%dT%H:%M:%S",     // 2024-12-27T19:57:55
-            "%Y-%m-%dT%H:%M:%SZ",    // 2024-12-27T19:57:55Z
-            "%Y-%m-%d %H:%M:%S%.f",  // 2024-12-27 19:57:55.123
+        let formats = match self.format_type.as_str() {
+            // Generic date/time format (tg)
+            "tg" => vec![
+                // Date and time formats
+                "%d/%m/%Y %H:%M:%S",     // 27/12/2024 19:57:55
+                "%d/%m/%Y %H:%M",        // 27/12/2024 19:57
+                "%d/%m/%Y %I:%M:%S %p",  // 27/12/2024 07:57:55 PM
+                "%d/%m/%Y %I:%M %p",     // 27/12/2024 07:57 PM
+                "%Y/%m/%d %H:%M:%S",     // 2024/12/27 19:57:55
+                "%Y/%m/%d %H:%M",        // 2024/12/27 19:57
+                "%Y/%m/%d %I:%M:%S %p",  // 2024/12/27 07:57:55 PM
+                "%Y/%m/%d %I:%M %p",     // 2024/12/27 07:57 PM
+                
+                // Date only formats
+                "%d/%m/%Y",              // 27/12/2024
+                "%Y/%m/%d",              // 2024/12/27
+                
+                // Time only formats
+                "%H:%M:%S",              // 19:57:55
+                "%H:%M",                 // 19:57
+                "%I:%M:%S %p",           // 07:57:55 PM
+                "%I:%M %p",              // 07:57 PM
+            ],
             
-            // Generic date/time formats (tg)
-            "%Y/%m/%d %I:%M:%S %p",  // 2024/12/27 07:57:55 PM
-            "%Y/%m/%d %I:%M %p",     // 2024/12/27 07:57 PM
-            "%d/%m/%Y %H:%M:%S",     // 27/12/2024 19:57:55
-            "%d/%m/%Y %H:%M",        // 27/12/2024 19:57
-            
-            // US date/time formats (ta)
-            "%m/%d/%Y %I:%M:%S %p",  // 12/27/2024 07:57:55 PM
-            "%m/%d/%Y %I:%M %p",     // 12/27/2024 07:57 PM
+            // American date/time format (ta)
+            "ta" => vec![
+                "%m/%d/%Y %I:%M:%S %p",  // 12/27/2024 07:57:55 PM
+                "%m/%d/%Y %I:%M %p",     // 12/27/2024 07:57 PM
+                "%m/%d/%Y %H:%M:%S",     // 12/27/2024 19:57:55
+                "%m/%d/%Y %H:%M",        // 12/27/2024 19:57
+                "%m/%d/%Y",              // 12/27/2024
+            ],
             
             // Email date/time format (te)
-            "%a, %d %b %Y %H:%M:%S %z", // Fri, 27 Dec 2024 19:57:55 +0000
-            "%d %b %Y %H:%M:%S %z",     // 27 Dec 2024 19:57:55 +0000
+            "te" => vec![
+                "%a, %d %b %Y %H:%M:%S %z",  // Fri, 27 Dec 2024 19:57:55 +0000
+                "%d %b %Y %H:%M:%S %z",      // 27 Dec 2024 19:57:55 +0000
+                "%d %b %Y",                  // 27 Dec 2024
+            ],
             
             // HTTP log format (th)
-            "%d/%b/%Y:%H:%M:%S %z",     // 27/Dec/2024:19:57:55 +0000
+            "th" => vec![
+                "%d/%b/%Y:%H:%M:%S %z",      // 27/Dec/2024:19:57:55 +0000
+            ],
             
-            // Linux system log format (ts)
-            "%b %e %H:%M:%S",           // Dec 27 19:57:55
-        ];
+            // System log format (ts)
+            "ts" => vec![
+                "%b %d %Y %H:%M:%S",         // Dec 27 2024 19:57:55
+            ],
+
+            // ISO format (ti)
+            "ti" => vec![
+                "%Y-%m-%dT%H:%M:%S%.3f%:z",  // 2024-12-27T19:57:55.000+00:00
+                "%Y-%m-%dT%H:%M:%S%:z",      // 2024-12-27T19:57:55+00:00
+                "%Y-%m-%dT%H:%M:%S%.3f",     // 2024-12-27T19:57:55.000
+                "%Y-%m-%dT%H:%M:%S",         // 2024-12-27T19:57:55
+                "%Y-%m-%d",                  // 2024-12-27
+            ],
+            
+            _ => return Err(ParseError::TypeConversionFailed),
+        };
+        
+        println!("Converting datetime string: {}", s);
         
         // Try to parse using any of the supported formats
-        for format in formats {
-            if let Ok(dt) = NaiveDateTime::parse_from_str(s, format) {
-                return Ok(Box::new(dt));
+        for format in &formats {
+            println!("Trying format: {}", format);
+            match format {
+                f if f.contains("%z") || f.contains("%:z") => {
+                    if let Ok(dt) = DateTime::parse_from_str(s, format) {
+                        println!("Successfully parsed with timezone: {}", dt);
+                        return Ok(Box::new(dt.naive_utc()));
+                    }
+                },
+                _ => {
+                    if let Ok(dt) = NaiveDateTime::parse_from_str(s, format) {
+                        println!("Successfully parsed without timezone: {}", dt);
+                        return Ok(Box::new(dt));
+                    }
+                }
             }
         }
         
+        // Try parsing as NaiveDate for date-only formats
+        for format in &formats {
+            if let Ok(d) = NaiveDate::parse_from_str(s, format) {
+                println!("Successfully parsed as date: {}", d);
+                return Ok(Box::new(d));
+            }
+        }
+        
+        // Try parsing as NaiveTime for time-only formats
+        for format in &formats {
+            if let Ok(t) = NaiveTime::parse_from_str(s, format) {
+                println!("Successfully parsed as time: {}", t);
+                return Ok(Box::new(t));
+            }
+        }
+        
+        println!("Failed to parse datetime string: {}", s);
         Err(ParseError::TypeConversionFailed)
     }
     
     fn get_pattern(&self) -> Option<&str> {
-        Some(r"(?:19|20)\d\d[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01])(?:[T ](?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[-+]\d{2}:?\d{2})?)?")
+        match self.format_type.as_str() {
+            "tg" => Some(r"\d{1,2}/\d{1,2}/\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:AM|PM))?)?|\d{4}/\d{1,2}/\d{1,2}(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:AM|PM))?)?|\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:AM|PM))?"),
+            "ta" => Some(r"\d{1,2}/\d{1,2}/\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:AM|PM))?)?"),
+            "te" => Some(r"(?:[A-Za-z]{3},\s+)?\d{1,2}\s+[A-Za-z]{3}\s+\d{4}(?:\s+\d{2}:\d{2}:\d{2}\s+[-+]\d{4})?"),
+            "th" => Some(r"\d{2}/[A-Za-z]{3}/\d{4}:\d{2}:\d{2}:\d{2}\s+[-+]\d{4}"),
+            "ts" => Some(r"[A-Za-z]{3}\s+\d{1,2}\s+\d{4}\s+\d{2}:\d{2}:\d{2}"),
+            "ti" => Some(r"\d{4}-\d{1,2}-\d{1,2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})?)?"),
+            _ => None,
+        }
     }
 }
 
@@ -211,9 +285,12 @@ lazy_static::lazy_static! {
         m.insert("d".to_string(), Box::new(IntConverter) as Box<dyn TypeConverter>);
         m.insert("f".to_string(), Box::new(FloatConverter) as Box<dyn TypeConverter>);
         m.insert("w".to_string(), Box::new(WordConverter) as Box<dyn TypeConverter>);
-        m.insert("datetime".to_string(), Box::new(DateTimeConverter) as Box<dyn TypeConverter>);
-        m.insert("date".to_string(), Box::new(DateConverter) as Box<dyn TypeConverter>);
-        m.insert("time".to_string(), Box::new(TimeConverter) as Box<dyn TypeConverter>);
+        m.insert("tg".to_string(), Box::new(DateTimeConverter { format_type: "tg".to_string() }) as Box<dyn TypeConverter>);
+        m.insert("ta".to_string(), Box::new(DateTimeConverter { format_type: "ta".to_string() }) as Box<dyn TypeConverter>);
+        m.insert("te".to_string(), Box::new(DateTimeConverter { format_type: "te".to_string() }) as Box<dyn TypeConverter>);
+        m.insert("th".to_string(), Box::new(DateTimeConverter { format_type: "th".to_string() }) as Box<dyn TypeConverter>);
+        m.insert("ts".to_string(), Box::new(DateTimeConverter { format_type: "ts".to_string() }) as Box<dyn TypeConverter>);
+        m.insert("ti".to_string(), Box::new(DateTimeConverter { format_type: "ti".to_string() }) as Box<dyn TypeConverter>);
         m
     };
 }
@@ -328,9 +405,12 @@ impl Parser {
                     "d" => Some(Box::new(IntConverter) as Box<dyn TypeConverter>),
                     "f" => Some(Box::new(FloatConverter) as Box<dyn TypeConverter>),
                     "w" => Some(Box::new(WordConverter) as Box<dyn TypeConverter>),
-                    "datetime" => Some(Box::new(DateTimeConverter) as Box<dyn TypeConverter>),
-                    "date" => Some(Box::new(DateConverter) as Box<dyn TypeConverter>),
-                    "time" => Some(Box::new(TimeConverter) as Box<dyn TypeConverter>),
+                    "tg" => Some(Box::new(DateTimeConverter { format_type: "tg".to_string() }) as Box<dyn TypeConverter>),
+                    "ta" => Some(Box::new(DateTimeConverter { format_type: "ta".to_string() }) as Box<dyn TypeConverter>),
+                    "te" => Some(Box::new(DateTimeConverter { format_type: "te".to_string() }) as Box<dyn TypeConverter>),
+                    "th" => Some(Box::new(DateTimeConverter { format_type: "th".to_string() }) as Box<dyn TypeConverter>),
+                    "ts" => Some(Box::new(DateTimeConverter { format_type: "ts".to_string() }) as Box<dyn TypeConverter>),
+                    "ti" => Some(Box::new(DateTimeConverter { format_type: "ti".to_string() }) as Box<dyn TypeConverter>),
                     _ => None,
                 } {
                     all_types.insert(k.clone(), converter);
@@ -367,9 +447,12 @@ impl Parser {
                 "d" => Some(Box::new(IntConverter) as Box<dyn TypeConverter>),
                 "f" => Some(Box::new(FloatConverter) as Box<dyn TypeConverter>),
                 "w" => Some(Box::new(WordConverter) as Box<dyn TypeConverter>),
-                "datetime" => Some(Box::new(DateTimeConverter) as Box<dyn TypeConverter>),
-                "date" => Some(Box::new(DateConverter) as Box<dyn TypeConverter>),
-                "time" => Some(Box::new(TimeConverter) as Box<dyn TypeConverter>),
+                "tg" => Some(Box::new(DateTimeConverter { format_type: "tg".to_string() }) as Box<dyn TypeConverter>),
+                "ta" => Some(Box::new(DateTimeConverter { format_type: "ta".to_string() }) as Box<dyn TypeConverter>),
+                "te" => Some(Box::new(DateTimeConverter { format_type: "te".to_string() }) as Box<dyn TypeConverter>),
+                "th" => Some(Box::new(DateTimeConverter { format_type: "th".to_string() }) as Box<dyn TypeConverter>),
+                "ts" => Some(Box::new(DateTimeConverter { format_type: "ts".to_string() }) as Box<dyn TypeConverter>),
+                "ti" => Some(Box::new(DateTimeConverter { format_type: "ti".to_string() }) as Box<dyn TypeConverter>),
                 _ => None,
             } {
                 default_types.insert(k.clone(), converter);

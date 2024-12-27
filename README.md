@@ -1,18 +1,91 @@
 # parse_rust
 
-A Rust implementation of Python's [parse](https://github.com/r1chardj0n3s/parse) library. This library provides a simple way to parse strings using format strings, similar to Python's `str.format()` but in reverse.
+A Rust implementation of Python's `parse` library, providing a flexible way to parse strings using simple, human-readable format strings.
 
 ## Features
 
-- Parse strings using format strings with named and unnamed fields
-- Support for type conversion (integers, floats, words)
-- Custom type converters
-- Case-sensitive and case-insensitive matching
-- Complex field names with dot notation and array indexing
-- Search and findall functionality
-- DateTime support
+- Parse strings using format strings similar to Python's `str.format()`
+- Extract typed values from strings
+- Support for various data types:
+  - Integers
+  - Floats
+  - Words (strings)
+  - Custom types
+  - Date and Time formats
+
+## Date and Time Format Specifiers
+
+The library supports various datetime format specifiers:
+
+- `:tg` - Generic date/time format
+  ```
+  27/12/2024 19:57:55
+  27/12/2024 07:57:55 PM
+  2024/12/27 19:57:55
+  27/12/2024
+  19:57:55
+  ```
+
+- `:ta` - American date/time format
+  ```
+  12/27/2024 07:57:55 PM
+  12/27/2024 19:57:55
+  12/27/2024
+  ```
+
+- `:te` - Email date/time format (RFC 2822)
+  ```
+  Fri, 27 Dec 2024 19:57:55 +0000
+  27 Dec 2024 19:57:55 +0000
+  27 Dec 2024
+  ```
+
+- `:th` - HTTP log date/time format
+  ```
+  27/Dec/2024:19:57:55 +0000
+  ```
+
+- `:ts` - System log date/time format
+  ```
+  Dec 27 2024 19:57:55
+  ```
+
+- `:ti` - ISO 8601 date/time format
+  ```
+  2024-12-27T19:57:55.000+00:00
+  2024-12-27T19:57:55+00:00
+  2024-12-27T19:57:55.000
+  2024-12-27T19:57:55
+  2024-12-27
+  ```
 
 ## Usage
+
+```rust
+use parse_rust::Parser;
+
+// Parse a simple string with an integer
+let p = Parser::new("Value is {:d}", true).unwrap();
+let result = p.parse("Value is 42").unwrap();
+let value: &i64 = result.get(0).unwrap();
+assert_eq!(*value, 42);
+
+// Parse a datetime string
+let p = Parser::new("Time: {:tg}", true).unwrap();
+let result = p.parse("Time: 27/12/2024 19:57:55").unwrap();
+let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
+assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+
+// Parse with named fields
+let p = Parser::new("Name: {name:w}, Age: {age:d}", true).unwrap();
+let result = p.parse("Name: John, Age: 30").unwrap();
+let name: &str = result.named("name").unwrap();
+let age: &i64 = result.named("age").unwrap();
+assert_eq!(name, "John");
+assert_eq!(*age, 30);
+```
+
+## Installation
 
 Add this to your `Cargo.toml`:
 
@@ -21,187 +94,13 @@ Add this to your `Cargo.toml`:
 parse_rust = "0.1.0"
 ```
 
-### Basic Parsing
+## Dependencies
 
-```rust
-use parse_rust::parse;
-
-// Simple parsing
-let result = parse("{} {}", "hello world").unwrap();
-assert_eq!(result.fixed, vec!["hello", "world"]);
-
-// Named fields
-let result = parse("{name} {age}", "John 25").unwrap();
-assert_eq!(result.named["name"], "John");
-assert_eq!(result.named["age"], "25");
-
-// Type conversion
-let result = parse("{name} {age:d}", "John 25").unwrap();
-assert_eq!(result.named["name"], "John");
-let age = result.converted["age"].downcast_ref::<i64>().unwrap();
-assert_eq!(*age, 25);
-```
-
-### Built-in Type Converters
-
-The library comes with three built-in type converters:
-
-- `:d` - Converts to integers (i64)
-- `:f` - Converts to floating point numbers (f64)
-- `:w` - Converts to words (String)
-
-```rust
-// Integer conversion
-let result = parse("{:d}", "123").unwrap();
-let value = result.converted["0"].downcast_ref::<i64>().unwrap();
-assert_eq!(*value, 123);
-
-// Float conversion
-let result = parse("{:f}", "123.45").unwrap();
-let value = result.converted["0"].downcast_ref::<f64>().unwrap();
-assert_eq!(*value, 123.45);
-
-// Word conversion
-let result = parse("{:w}", "hello123").unwrap();
-let value = result.converted["0"].downcast_ref::<String>().unwrap();
-assert_eq!(value, "hello123");
-```
-
-### Custom Type Converters
-
-You can create custom type converters by implementing the `TypeConverter` trait:
-
-```rust
-use parse_rust::{TypeConverter, ParseError};
-use std::collections::HashMap;
-
-#[derive(Debug)]
-struct HexConverter;
-
-impl TypeConverter for HexConverter {
-    fn convert(&self, s: &str) -> Result<Box<dyn std::any::Any>, ParseError> {
-        i64::from_str_radix(s.trim_start_matches("0x"), 16)
-            .map(|n| Box::new(n) as Box<dyn std::any::Any>)
-            .map_err(|_| ParseError::TypeConversionFailed)
-    }
-    
-    fn get_pattern(&self) -> Option<&str> {
-        Some(r"0x[0-9a-fA-F]+")
-    }
-}
-
-let mut extra_types = HashMap::new();
-extra_types.insert("hex".to_string(), Box::new(HexConverter) as Box<dyn TypeConverter>);
-
-let result = parse_with_types("{:hex}", "0x1F", extra_types).unwrap();
-let value = result.converted["0"].downcast_ref::<i64>().unwrap();
-assert_eq!(*value, 31);
-```
-
-### Complex Field Names
-
-The library supports dot notation and array indexing in field names:
-
-```rust
-let result = parse("{person.name} {array[0]}", "John 123").unwrap();
-assert_eq!(result.named["person__name"], "John");
-assert_eq!(result.named["array__0"], "123");
-```
-
-### Search and FindAll
-
-Besides exact matching with `parse()`, you can also search for patterns within text:
-
-```rust
-use parse_rust::{search, findall};
-
-// Search for first occurrence
-let result = search("Age: {:d}", "Name: John, Age: 25, Height: 180").unwrap();
-let age = result.converted["0"].downcast_ref::<i64>().unwrap();
-assert_eq!(*age, 25);
-
-// Find all occurrences
-let results = findall("{:d}", "Numbers: 1, 2, 3, 4, 5");
-assert_eq!(results.len(), 5);
-```
-
-### Case Sensitivity
-
-By default, parsing is case-insensitive. For case-sensitive parsing, use the Parser directly:
-
-```rust
-use parse_rust::Parser;
-
-let parser = Parser::new("Hello {:w}", true).unwrap();  // case_sensitive = true
-assert!(parser.parse("hello world").is_none());  // Won't match due to case
-assert!(parser.parse("Hello world").is_some());  // Matches
-```
-
-## DateTime Support
-
-The library supports parsing various date and time formats:
-
-### Date Formats
-
-```rust
-// ISO format
-let result = parse("{:date}", "2024-12-27").unwrap();
-// US format
-let result = parse("{:date}", "12/27/2024").unwrap();
-// Generic format
-let result = parse("{:date}", "27/12/2024").unwrap();
-// Text month format
-let result = parse("{:date}", "27-Dec-2024").unwrap();
-// Compact format
-let result = parse("{:date}", "20241227").unwrap();
-```
-
-### Time Formats
-
-```rust
-// 24-hour format
-let result = parse("{:time}", "19:57:55").unwrap();
-// 12-hour format
-let result = parse("{:time}", "07:57:55 PM").unwrap();
-// With timezone
-let result = parse("{:time}", "19:57:55 +0000").unwrap();
-```
-
-### DateTime Formats
-
-```rust
-// ISO format
-let result = parse("{:datetime}", "2024-12-27 19:57:55").unwrap();
-// ISO with T separator
-let result = parse("{:datetime}", "2024-12-27T19:57:55Z").unwrap();
-// With microseconds
-let result = parse("{:datetime}", "2024-12-27 19:57:55.123").unwrap();
-// US format
-let result = parse("{:datetime}", "12/27/2024 07:57:55 PM").unwrap();
-// Email format (RFC 2822)
-let result = parse("{:datetime}", "Fri, 27 Dec 2024 19:57:55 +0000").unwrap();
-// HTTP log format
-let result = parse("{:datetime}", "27/Dec/2024:19:57:55 +0000").unwrap();
-// Linux system log format
-let result = parse("{:datetime}", "Dec 27 19:57:55").unwrap();
-```
-
-## Error Handling
-
-The library uses a custom `ParseError` enum for error handling:
-
-```rust
-pub enum ParseError {
-    InvalidFormat,      // The format string is invalid
-    NoMatch,           // No match found
-    TypeConversionFailed, // Type conversion failed
-}
-```
+- `regex` - For pattern matching
+- `chrono` - For date and time parsing
+- `thiserror` - For error handling
+- `lazy_static` - For static initialization
 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
