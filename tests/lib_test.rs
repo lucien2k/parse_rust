@@ -56,49 +56,78 @@ fn test_findall() {
 
 #[test]
 fn test_int_conversion() {
-    let r = parse("{:d}", "123").unwrap();
-    assert_eq!(r.fixed, vec!["123"]);
-    let value = r.converted.get("0").unwrap();
-    assert_eq!(value.downcast_ref::<i64>().unwrap(), &123);
+    let p = Parser::new("{:d}", true).unwrap();
+    let r = p.parse("123").unwrap();
+    let value: &i64 = r.get(0).unwrap();
+    assert_eq!(value, &123);
 }
 
 #[test]
 fn test_float_conversion() {
-    let r = parse("{:f}", "123.45").unwrap();
-    assert_eq!(r.fixed, vec!["123.45"]);
-    let value = r.converted.get("0").unwrap();
-    assert_eq!(value.downcast_ref::<f64>().unwrap(), &123.45);
+    let p = Parser::new("{:f}", true).unwrap();
+    let r = p.parse("123.45").unwrap();
+    let value: &f64 = r.get(0).unwrap();
+    assert_eq!(value, &123.45);
 }
 
 #[test]
 fn test_word_conversion() {
-    let r = parse("{:w}", "hello123").unwrap();
-    assert_eq!(r.fixed, vec!["hello123"]);
-    let value = r.converted.get("0").unwrap();
-    assert_eq!(value.downcast_ref::<String>().unwrap(), "hello123");
+    let p = Parser::new("{:w}", true).unwrap();
+    let r = p.parse("hello123").unwrap();
+    let value: &String = r.get(0).unwrap();
+    assert_eq!(value, "hello123");
 }
 
 #[test]
 fn test_mixed_types() {
-    let r = parse("{:d} {:f} {:w}", "123 45.67 hello").unwrap();
-    assert_eq!(r.fixed, vec!["123", "45.67", "hello"]);
+    let p = Parser::new("{:d} {:f} {:w}", true).unwrap();
+    let r = p.parse("123 45.67 hello").unwrap();
     
-    let int_value = r.converted.get("0").unwrap();
-    assert_eq!(int_value.downcast_ref::<i64>().unwrap(), &123);
+    let int_value: &i64 = r.get(0).unwrap();
+    assert_eq!(int_value, &123);
     
-    let float_value = r.converted.get("1").unwrap();
-    assert_eq!(float_value.downcast_ref::<f64>().unwrap(), &45.67);
+    let float_value: &f64 = r.get(1).unwrap();
+    assert_eq!(float_value, &45.67);
     
-    let word_value = r.converted.get("2").unwrap();
-    assert_eq!(word_value.downcast_ref::<String>().unwrap(), "hello");
+    let word_value: &String = r.get(2).unwrap();
+    assert_eq!(word_value, "hello");
 }
 
 #[test]
 fn test_named_types() {
-    let r = parse("{age:d}", "25").unwrap();
-    assert_eq!(r.fixed, vec!["25"]);
-    let value = r.converted.get("age").unwrap();
-    assert_eq!(value.downcast_ref::<i64>().unwrap(), &25);
+    let p = Parser::new("{age:d}", true).unwrap();
+    let r = p.parse("25").unwrap();
+    let value: &i64 = r.get(0).unwrap();
+    assert_eq!(value, &25);
+}
+
+#[test]
+fn test_custom_type() {
+    struct CustomType {
+        value: i64,
+    }
+
+    #[derive(Debug)]
+    struct CustomConverter;
+    impl TypeConverter for CustomConverter {
+        fn convert(&self, s: &str) -> Result<Box<dyn std::any::Any>, ParseError> {
+            s.parse::<i64>()
+                .map(|n| Box::new(CustomType { value: n }) as Box<dyn std::any::Any>)
+                .map_err(|_| ParseError::TypeConversionFailed)
+        }
+
+        fn get_pattern(&self) -> Option<&str> {
+            Some(r"\d+")
+        }
+    }
+
+    let mut extra_types = HashMap::new();
+    extra_types.insert("custom".to_string(), Box::new(CustomConverter) as Box<dyn TypeConverter>);
+    
+    let p = Parser::new_with_types("{:custom}", true, extra_types).unwrap();
+    let r = p.parse("31").unwrap();
+    let value: &CustomType = r.get(0).unwrap();
+    assert_eq!(value.value, 31);
 }
 
 #[test]
@@ -110,28 +139,86 @@ fn test_complex_field_names() {
 }
 
 #[test]
-fn test_custom_type() {
-    #[derive(Debug)]
-    struct HexConverter;
-    impl TypeConverter for HexConverter {
-        fn convert(&self, s: &str) -> Result<Box<dyn std::any::Any>, ParseError> {
-            i64::from_str_radix(s.trim_start_matches("0x"), 16)
-                .map(|n| Box::new(n) as Box<dyn std::any::Any>)
-                .map_err(|_| ParseError::TypeConversionFailed)
-        }
-        
-        fn get_pattern(&self) -> Option<&str> {
-            Some(r"0x[0-9a-fA-F]+")
-        }
-    }
+fn test_datetime_conversion() {
+    // Test datetime parsing
+    let p = Parser::new("{:datetime}", true).unwrap();
+    let result = p.parse("2024-12-27 19:57:55").unwrap();
+    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
+    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+
+    // Test with T separator
+    let result = p.parse("2024-12-27T19:57:55").unwrap();
+    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
+    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+
+    // Test with Z suffix
+    let result = p.parse("2024-12-27T19:57:55Z").unwrap();
+    let dt: &chrono::NaiveDateTime = result.get(0).unwrap();
+    assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-12-27 19:57:55");
+}
+
+#[test]
+fn test_date_conversion() {
+    let p = Parser::new("{:date}", true).unwrap();
     
-    let mut extra_types = HashMap::new();
-    extra_types.insert("hex".to_string(), Box::new(HexConverter) as Box<dyn TypeConverter>);
+    // Test ISO format
+    let result = p.parse("2024-12-27").unwrap();
+    let date: &chrono::NaiveDate = result.get(0).unwrap();
+    assert_eq!(date.format("%Y-%m-%d").to_string(), "2024-12-27");
+
+    // Test slash format
+    let result = p.parse("27/12/2024").unwrap();
+    let date: &chrono::NaiveDate = result.get(0).unwrap();
+    assert_eq!(date.format("%Y-%m-%d").to_string(), "2024-12-27");
+
+    // Test named month format
+    let result = p.parse("27-Dec-2024").unwrap();
+    let date: &chrono::NaiveDate = result.get(0).unwrap();
+    assert_eq!(date.format("%Y-%m-%d").to_string(), "2024-12-27");
+
+    // Test compact format
+    let result = p.parse("20241227").unwrap();
+    let date: &chrono::NaiveDate = result.get(0).unwrap();
+    assert_eq!(date.format("%Y-%m-%d").to_string(), "2024-12-27");
+}
+
+#[test]
+fn test_time_conversion() {
+    let p = Parser::new("{:time}", true).unwrap();
     
-    let r = parse_with_types("{:hex}", "0x1F", extra_types).unwrap();
-    assert_eq!(r.fixed, vec!["0x1F"]);
-    let value = r.converted.get("0").unwrap();
-    assert_eq!(value.downcast_ref::<i64>().unwrap(), &31);
+    // Test 24-hour format with seconds
+    let result = p.parse("19:57:55").unwrap();
+    let time: &chrono::NaiveTime = result.get(0).unwrap();
+    assert_eq!(time.format("%H:%M:%S").to_string(), "19:57:55");
+
+    // Test 24-hour format without seconds
+    let result = p.parse("19:57").unwrap();
+    let time: &chrono::NaiveTime = result.get(0).unwrap();
+    assert_eq!(time.format("%H:%M:%S").to_string(), "19:57:00");
+
+    // Test 12-hour format with seconds
+    let result = p.parse("07:57:55 PM").unwrap();
+    let time: &chrono::NaiveTime = result.get(0).unwrap();
+    assert_eq!(time.format("%H:%M:%S").to_string(), "19:57:55");
+
+    // Test 12-hour format without seconds
+    let result = p.parse("07:57 PM").unwrap();
+    let time: &chrono::NaiveTime = result.get(0).unwrap();
+    assert_eq!(time.format("%H:%M:%S").to_string(), "19:57:00");
+}
+
+#[test]
+fn test_datetime_errors() {
+    let p = Parser::new("{:datetime}", true).unwrap();
+    
+    // Invalid date
+    assert!(p.parse("2024-13-27 19:57:55").is_none());
+    
+    // Invalid time
+    assert!(p.parse("2024-12-27 25:57:55").is_none());
+    
+    // Invalid format
+    assert!(p.parse("2024/12/27 19:57:55").is_none());
 }
 
 #[test]

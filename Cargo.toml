@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 regex = "1.10.2"
-chrono = "0.4.31"
-thiserror = "1.0.50"
 lazy_static = "1.4.0"
+thiserror = "1.0"
+chrono = "0.4"

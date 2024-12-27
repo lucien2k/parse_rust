@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use regex::{Regex, RegexBuilder};
 use thiserror::Error;
+use chrono::{NaiveDateTime, NaiveDate, NaiveTime};
+use std::any::Any;
 
 #[derive(Debug)]
 pub struct Parser {
@@ -16,7 +18,13 @@ pub struct ParseResult {
     pub fixed: Vec<String>,
     pub named: HashMap<String, String>,
     pub spans: Vec<(usize, usize)>,
-    pub converted: HashMap<String, Box<dyn std::any::Any>>,
+    pub converted: Vec<Box<dyn Any>>,
+}
+
+impl ParseResult {
+    pub fn get<T: 'static>(&self, index: usize) -> Option<&T> {
+        self.converted.get(index).and_then(|value| value.downcast_ref::<T>())
+    }
 }
 
 #[derive(Error, Debug)]
@@ -76,12 +84,136 @@ impl TypeConverter for WordConverter {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct DateTimeConverter;
+impl TypeConverter for DateTimeConverter {
+    fn convert(&self, s: &str) -> Result<Box<dyn std::any::Any>, ParseError> {
+        // Try various datetime formats
+        let formats = [
+            // Standard formats
+            "%Y-%m-%d %H:%M:%S",     // 2024-12-27 19:57:55
+            "%Y-%m-%d %H:%M",        // 2024-12-27 19:57
+            "%Y-%m-%dT%H:%M:%S",     // 2024-12-27T19:57:55
+            "%Y-%m-%dT%H:%M:%SZ",    // 2024-12-27T19:57:55Z
+            "%Y-%m-%d %H:%M:%S%.f",  // 2024-12-27 19:57:55.123
+            
+            // Generic date/time formats (tg)
+            "%Y/%m/%d %I:%M:%S %p",  // 2024/12/27 07:57:55 PM
+            "%Y/%m/%d %I:%M %p",     // 2024/12/27 07:57 PM
+            "%d/%m/%Y %H:%M:%S",     // 27/12/2024 19:57:55
+            "%d/%m/%Y %H:%M",        // 27/12/2024 19:57
+            
+            // US date/time formats (ta)
+            "%m/%d/%Y %I:%M:%S %p",  // 12/27/2024 07:57:55 PM
+            "%m/%d/%Y %I:%M %p",     // 12/27/2024 07:57 PM
+            
+            // Email date/time format (te)
+            "%a, %d %b %Y %H:%M:%S %z", // Fri, 27 Dec 2024 19:57:55 +0000
+            "%d %b %Y %H:%M:%S %z",     // 27 Dec 2024 19:57:55 +0000
+            
+            // HTTP log format (th)
+            "%d/%b/%Y:%H:%M:%S %z",     // 27/Dec/2024:19:57:55 +0000
+            
+            // Linux system log format (ts)
+            "%b %e %H:%M:%S",           // Dec 27 19:57:55
+        ];
+        
+        // Try to parse using any of the supported formats
+        for format in formats {
+            if let Ok(dt) = NaiveDateTime::parse_from_str(s, format) {
+                return Ok(Box::new(dt));
+            }
+        }
+        
+        Err(ParseError::TypeConversionFailed)
+    }
+    
+    fn get_pattern(&self) -> Option<&str> {
+        Some(r"(?:19|20)\d\d[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01])(?:[T ](?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[-+]\d{2}:?\d{2})?)?")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DateConverter;
+impl TypeConverter for DateConverter {
+    fn convert(&self, s: &str) -> Result<Box<dyn std::any::Any>, ParseError> {
+        // Try various date formats
+        let formats = [
+            // Standard date formats
+            "%Y-%m-%d",      // 2024-12-27
+            "%Y/%m/%d",      // 2024/12/27
+            
+            // Generic formats
+            "%d/%m/%Y",      // 27/12/2024
+            "%d-%m-%Y",      // 27-12-2024
+            
+            // US formats
+            "%m/%d/%Y",      // 12/27/2024
+            "%m-%d-%Y",      // 12-27-2024
+            
+            // Text month formats
+            "%d %b %Y",      // 27 Dec 2024
+            "%d %B %Y",      // 27 December 2024
+            "%b %d, %Y",     // Dec 27, 2024
+            "%B %d, %Y",     // December 27, 2024
+            "%d-%b-%Y",      // 27-Dec-2024
+            
+            // Compact format
+            "%Y%m%d",        // 20241227
+        ];
+        
+        for format in formats {
+            if let Ok(d) = NaiveDate::parse_from_str(s, format) {
+                return Ok(Box::new(d));
+            }
+        }
+        
+        Err(ParseError::TypeConversionFailed)
+    }
+    
+    fn get_pattern(&self) -> Option<&str> {
+        Some(r"(?:(?:19|20)\d\d[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01])|(?:0[1-9]|[12]\d|3[01])[-/](?:0[1-9]|1[0-2])[-/](?:19|20)\d\d|(?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01])[-/](?:19|20)\d\d|(?:0[1-9]|[12]\d|3[01])(?:\s+|-)?(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?:\s*,\s*|\s+|-)?(?:19|20)\d\d|(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01]))")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TimeConverter;
+impl TypeConverter for TimeConverter {
+    fn convert(&self, s: &str) -> Result<Box<dyn std::any::Any>, ParseError> {
+        // Try various time formats
+        let formats = [
+            // Standard time formats
+            "%H:%M:%S",        // 19:57:55
+            "%H:%M",           // 19:57
+            "%I:%M:%S %p",     // 07:57:55 PM
+            "%I:%M %p",        // 07:57 PM
+            "%H:%M:%S %z",     // 19:57:55 +0000
+            "%I:%M:%S %p %z",  // 07:57:55 PM +0000
+        ];
+        
+        for format in formats {
+            if let Ok(t) = NaiveTime::parse_from_str(s, format) {
+                return Ok(Box::new(t));
+            }
+        }
+        
+        Err(ParseError::TypeConversionFailed)
+    }
+    
+    fn get_pattern(&self) -> Option<&str> {
+        Some(r"(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?(?:\s*[AaPp][Mm])?(?:\s*[-+]\d{2}:?\d{2})?")
+    }
+}
+
 lazy_static::lazy_static! {
     static ref DEFAULT_TYPES: HashMap<String, Box<dyn TypeConverter>> = {
         let mut m = HashMap::new();
         m.insert("d".to_string(), Box::new(IntConverter) as Box<dyn TypeConverter>);
         m.insert("f".to_string(), Box::new(FloatConverter) as Box<dyn TypeConverter>);
         m.insert("w".to_string(), Box::new(WordConverter) as Box<dyn TypeConverter>);
+        m.insert("datetime".to_string(), Box::new(DateTimeConverter) as Box<dyn TypeConverter>);
+        m.insert("date".to_string(), Box::new(DateConverter) as Box<dyn TypeConverter>);
+        m.insert("time".to_string(), Box::new(TimeConverter) as Box<dyn TypeConverter>);
         m
     };
 }
@@ -196,6 +328,9 @@ impl Parser {
                     "d" => Some(Box::new(IntConverter) as Box<dyn TypeConverter>),
                     "f" => Some(Box::new(FloatConverter) as Box<dyn TypeConverter>),
                     "w" => Some(Box::new(WordConverter) as Box<dyn TypeConverter>),
+                    "datetime" => Some(Box::new(DateTimeConverter) as Box<dyn TypeConverter>),
+                    "date" => Some(Box::new(DateConverter) as Box<dyn TypeConverter>),
+                    "time" => Some(Box::new(TimeConverter) as Box<dyn TypeConverter>),
                     _ => None,
                 } {
                     all_types.insert(k.clone(), converter);
@@ -232,6 +367,9 @@ impl Parser {
                 "d" => Some(Box::new(IntConverter) as Box<dyn TypeConverter>),
                 "f" => Some(Box::new(FloatConverter) as Box<dyn TypeConverter>),
                 "w" => Some(Box::new(WordConverter) as Box<dyn TypeConverter>),
+                "datetime" => Some(Box::new(DateTimeConverter) as Box<dyn TypeConverter>),
+                "date" => Some(Box::new(DateConverter) as Box<dyn TypeConverter>),
+                "time" => Some(Box::new(TimeConverter) as Box<dyn TypeConverter>),
                 _ => None,
             } {
                 default_types.insert(k.clone(), converter);
@@ -241,54 +379,62 @@ impl Parser {
     }
     
     pub fn parse(&self, text: &str) -> Option<ParseResult> {
-        self.pattern.captures(text).map(|caps| self.process_captures(&caps))
+        self.pattern.captures(text).map(|caps| self.process_captures(&caps)).and_then(|r| r.ok())
     }
     
     pub fn search(&self, text: &str) -> Option<ParseResult> {
-        self.search_pattern.captures(text).map(|caps| self.process_captures(&caps))
-    }
-    
-    fn process_captures(&self, caps: &regex::Captures) -> ParseResult {
-        let mut fixed = Vec::new();
-        let mut named = HashMap::new();
-        let mut spans = Vec::new();
-        let mut converted = HashMap::new();
-        
-        // Initialize fixed with empty strings to preserve order
-        fixed.resize(self.field_map.len(), String::new());
-        
-        // Process captures in order of appearance
-        for (field_name, &group_idx) in &self.field_map {
-            if let Some(m) = caps.get(group_idx) {
-                let value = m.as_str().to_string();
-                fixed[group_idx - 1] = value.clone();  // -1 because group 0 is the whole match
-                named.insert(field_name.clone(), value.clone());
-                spans.push((m.start(), m.end()));
-                
-                // Handle type conversion
-                if let Some(type_name) = self.field_types.get(field_name) {
-                    if let Some(converter) = self.type_converters.get(type_name) {
-                        if let Ok(converted_value) = converter.convert(&value) {
-                            converted.insert(field_name.clone(), converted_value);
-                        }
-                    }
-                }
-            }
-        }
-        
-        ParseResult {
-            fixed,
-            named,
-            spans,
-            converted,
-        }
+        self.search_pattern.captures(text).map(|caps| self.process_captures(&caps)).and_then(|r| r.ok())
     }
     
     pub fn findall(&self, text: &str) -> Vec<ParseResult> {
         self.search_pattern
             .captures_iter(text)
             .map(|caps| self.process_captures(&caps))
-            .collect()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap_or_default()
+    }
+    
+    fn process_captures(&self, caps: &regex::Captures) -> Result<ParseResult, ParseError> {
+        let mut fixed = Vec::new();
+        let mut named = HashMap::new();
+        let mut spans = Vec::new();
+        let mut converted = Vec::with_capacity(self.field_map.len());
+        
+        // Initialize fixed with empty strings to preserve order
+        fixed.resize(self.field_map.len(), String::new());
+        
+        // First pass: collect all values
+        for (field_name, &group_idx) in &self.field_map {
+            if let Some(m) = caps.get(group_idx) {
+                let value = m.as_str().to_string();
+                fixed[group_idx - 1] = value.clone();  // -1 because group 0 is the whole match
+                named.insert(field_name.clone(), value);
+                spans.push((m.start(), m.end()));
+            }
+        }
+        
+        // Second pass: convert values in order
+        for i in 0..fixed.len() {
+            for (field_name, &group_idx) in &self.field_map {
+                if group_idx - 1 == i {  // -1 because group 0 is the whole match
+                    if let Some(type_name) = self.field_types.get(field_name) {
+                        if let Some(converter) = self.type_converters.get(type_name) {
+                            match converter.convert(&fixed[i]) {
+                                Ok(converted_value) => converted.push(converted_value),
+                                Err(e) => return Err(e),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(ParseResult {
+            fixed,
+            named,
+            spans,
+            converted,
+        })
     }
 }
 

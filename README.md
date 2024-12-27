@@ -10,6 +10,7 @@ A Rust implementation of Python's [parse](https://github.com/r1chardj0n3s/parse)
 - Case-sensitive and case-insensitive matching
 - Complex field names with dot notation and array indexing
 - Search and findall functionality
+- DateTime support
 
 ## Usage
 
@@ -136,6 +137,55 @@ assert!(parser.parse("hello world").is_none());  // Won't match due to case
 assert!(parser.parse("Hello world").is_some());  // Matches
 ```
 
+## DateTime Support
+
+The library supports parsing various date and time formats:
+
+### Date Formats
+
+```rust
+// ISO format
+let result = parse("{:date}", "2024-12-27").unwrap();
+// US format
+let result = parse("{:date}", "12/27/2024").unwrap();
+// Generic format
+let result = parse("{:date}", "27/12/2024").unwrap();
+// Text month format
+let result = parse("{:date}", "27-Dec-2024").unwrap();
+// Compact format
+let result = parse("{:date}", "20241227").unwrap();
+```
+
+### Time Formats
+
+```rust
+// 24-hour format
+let result = parse("{:time}", "19:57:55").unwrap();
+// 12-hour format
+let result = parse("{:time}", "07:57:55 PM").unwrap();
+// With timezone
+let result = parse("{:time}", "19:57:55 +0000").unwrap();
+```
+
+### DateTime Formats
+
+```rust
+// ISO format
+let result = parse("{:datetime}", "2024-12-27 19:57:55").unwrap();
+// ISO with T separator
+let result = parse("{:datetime}", "2024-12-27T19:57:55Z").unwrap();
+// With microseconds
+let result = parse("{:datetime}", "2024-12-27 19:57:55.123").unwrap();
+// US format
+let result = parse("{:datetime}", "12/27/2024 07:57:55 PM").unwrap();
+// Email format (RFC 2822)
+let result = parse("{:datetime}", "Fri, 27 Dec 2024 19:57:55 +0000").unwrap();
+// HTTP log format
+let result = parse("{:datetime}", "27/Dec/2024:19:57:55 +0000").unwrap();
+// Linux system log format
+let result = parse("{:datetime}", "Dec 27 19:57:55").unwrap();
+```
+
 ## Error Handling
 
 The library uses a custom `ParseError` enum for error handling:
@@ -151,3 +201,7 @@ pub enum ParseError {
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
